@@ -1,13 +1,17 @@
 package com.nttdata.dockerized.postgresql.service;
 
+import com.nttdata.dockerized.postgresql.exceptions.BusinessException;
+import com.nttdata.dockerized.postgresql.exceptions.FieldValidationException;
+import com.nttdata.dockerized.postgresql.exceptions.NotFoundException;
+import com.nttdata.dockerized.postgresql.mapper.CatalogoMapper;
+import com.nttdata.dockerized.postgresql.model.dto.ProductoDto;
 import com.nttdata.dockerized.postgresql.model.entity.Categoria;
 import com.nttdata.dockerized.postgresql.model.entity.Producto;
 import com.nttdata.dockerized.postgresql.repository.CategoriaRepository;
 import com.nttdata.dockerized.postgresql.repository.ProductoRepository;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
-import java.util.List;
+import java.math.BigDecimal;
+import java.util.*;
 
 @Service
 public class ProductoServiceImpl implements ProductoService {
@@ -19,37 +23,75 @@ public class ProductoServiceImpl implements ProductoService {
         this.repo = repo; this.catRepo = catRepo;
     }
 
-    public List<Producto> list(Long categoriaId){
+    @Override
+    public List<Producto> list(Long categoriaId) {
         return (categoriaId != null) ? repo.findByCategoria_Id(categoriaId) : repo.findAll();
     }
 
-    public Producto get(Long id){
-        return repo.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "El Producto no se encontro!"));
+    @Override
+    public Producto get(Long id) {
+        return repo.findById(id).orElseThrow(() -> new NotFoundException("Producto no encontrado"));
     }
 
-    public Producto save(Producto p){
-        if(p.getCategoria()==null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Se requiere Categoria!");
+    @Override
+    public Producto create(ProductoDto dto) {
+        Map<String,String> errors = new LinkedHashMap<>();
+        if (dto.getNombre()==null || dto.getNombre().isBlank()){
+            errors.put("nombre","obligatorio");
+        }
+        if (dto.getPrecio()==null){
+            errors.put("precio","obligatorio");
+        } else if (dto.getPrecio().compareTo(BigDecimal.ZERO) <= 0){
+            errors.put("precio","debe ser > 0");
+        }
+        if (dto.getCategoriaId()==null){
+            errors.put("categoriaId","obligatorio");
+        }
+        if (!errors.isEmpty()){
+            throw new FieldValidationException("Errores de validación", errors);
+        }
+        Categoria cat = catRepo.findById(dto.getCategoriaId()).orElseThrow(() -> new NotFoundException("Categoria no encontrada"));
+        Producto p = CatalogoMapper.INSTANCE.toEntity(dto);
+        p.setCategoria(cat);
+        p.setActivo(Boolean.TRUE);
         return repo.save(p);
     }
 
-    public Producto update(Long id, Producto in){
+    @Override
+    public Producto update(Long id, ProductoDto dto) {
         Producto db = get(id);
-        if(in.getNombre()!=null) db.setNombre(in.getNombre());
-        if(in.getPrecio()!=null) db.setPrecio(in.getPrecio());
-        if(in.getCategoria()!=null) db.setCategoria(in.getCategoria());
-        if(in.getActivo()!=null) db.setActivo(in.getActivo());
+        if (dto.getNombre()!=null) {
+            db.setNombre(dto.getNombre());
+        }
+        if (dto.getPrecio()!=null) {
+            if (dto.getPrecio().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new FieldValidationException("Errores de validación", Map.of("precio", "debe ser > 0"));
+            }
+            db.setPrecio(dto.getPrecio());
+        }
+        if (dto.getCategoriaId()!=null) {
+            Categoria cat = catRepo.findById(dto.getCategoriaId()).orElseThrow(() -> new NotFoundException("Categoria no encontrada"));
+            db.setCategoria(cat);
+        }
+        if (dto.getActivo()!=null){
+            db.setActivo(dto.getActivo());
+        }
         return repo.save(db);
     }
 
-    public void delete(Long id){
-        if(!repo.existsById(id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "El Producto no se encontro!");
+    @Override
+    public void delete(Long id) {
+        if (!repo.existsById(id)) throw new NotFoundException("Producto no encontrado");
         repo.deleteById(id);
     }
 
-    public Producto assignCategoria(Long productoId, Long categoriaId){
+    @Override
+    public Producto assignCategoria(Long productoId, Long categoriaId) {
         Producto p = get(productoId);
-        Categoria c = catRepo.findById(categoriaId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "La Categoria no se encontro!"));
+        if (Boolean.FALSE.equals(p.getActivo())){
+            throw new BusinessException("PRD_INACTIVE", "No se puede asignar categoría a un producto inactivo");
+        }
+        Categoria c = catRepo.findById(categoriaId).orElseThrow(() -> new NotFoundException("Categoria no encontrada"));
         p.setCategoria(c);
         return repo.save(p);
     }
