@@ -8,6 +8,10 @@
         <version>3.5.5</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
+    <modules>
+        <module>producto-ms</module>
+        <module>pedido-ms</module>
+    </modules>
     <groupId>com.nttdata</groupId>
     <artifactId>dockerized.postgresql</artifactId>
     <version>0.0.1-SNAPSHOT</version>
